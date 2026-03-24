@@ -1,10 +1,41 @@
 import { InfoCircleOutlined } from "@ant-design/icons";
-import { Button, Col, Flex, Form, Input, Popconfirm, Row, Select, Space, Spin, Switch, Table, message } from "antd";
+import {
+  Button,
+  Col,
+  Flex,
+  Form,
+  Input,
+  Popconfirm,
+  Row,
+  Select,
+  Space,
+  Spin,
+  Switch,
+  Table,
+  Tooltip,
+  Typography,
+  message,
+} from "antd";
 import { useEffect, useState } from "react";
 import { v7 as uuid } from "uuid";
 import axiosInstance from "../../../config/axiosConfig";
 import { Template, VcsType, WebhookEvent, Workspace } from "../../types";
 import { atomicHeader, renderVCSLogo } from "../Workspaces";
+
+const isValidRegexList = (str: string | undefined) => {
+  if (!str) return true;
+  return str
+    .split(",")
+    .map((s) => s.trim())
+    .every((s) => {
+      try {
+        new RegExp(s);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+};
 
 type Props = {
   workspace: Workspace;
@@ -22,6 +53,7 @@ export const WorkspaceWebhook = ({ workspace, vcsProvider, orgTemplates, manageW
     {
       key: 1,
       id: uuid(),
+      prWorkflowEnabled: false,
     } as any,
   ]);
   const workspaceId = workspace.id;
@@ -39,43 +71,44 @@ export const WorkspaceWebhook = ({ workspace, vcsProvider, orgTemplates, manageW
       return;
     }
     setWebhookEnabled(true);
-    try {
-      axiosInstance
-        .get(`organization/${organizationId}/workspace/${workspaceId}/webhook/${webhookId}`)
-        .then((response) => {
-          setRemoteHookId(response.data.data.attributes.remoteHookId);
-        });
-      axiosInstance
-        .get(`organization/${organizationId}/workspace/${workspaceId}/webhook/${webhookId}/events`)
-        .then((response) => {
-          let i = 1;
-          const events = response.data.data
-            .sort((a: WebhookEvent, b: WebhookEvent) => b.attributes.priority - a.attributes.priority)
-            .map((event: WebhookEvent) => {
-              return {
-                key: i++,
-                id: event.id,
-                priority: event.attributes.priority,
-                event: event.attributes.event,
-                branch: event.attributes.branch,
-                file: event.attributes.path,
-                template: event.attributes.templateId,
-                created: true,
-              };
-            });
-          setRecordIndex(events.length + 1);
-          setWebhookEvents(
-            events.concat({
-              key: i,
-              id: uuid(),
-            })
-          );
-        });
-    } catch (error) {
-      message.error("Failed to load webhook");
-    }
+
+    // Parallel load: webhook details and webhook events
+    Promise.all([
+      axiosInstance.get(`organization/${organizationId}/workspace/${workspaceId}/webhook/${webhookId}`),
+      axiosInstance.get(`organization/${organizationId}/workspace/${workspaceId}/webhook/${webhookId}/events`),
+    ])
+      .then(([webhookRes, eventsRes]) => {
+        setRemoteHookId(webhookRes.data.data.attributes.remoteHookId);
+
+        let i = 1;
+        const events = eventsRes.data.data
+          .sort((a: WebhookEvent, b: WebhookEvent) => b.attributes.priority - a.attributes.priority)
+          .map((event: WebhookEvent) => {
+            return {
+              key: i++,
+              id: event.id,
+              priority: event.attributes.priority,
+              event: event.attributes.event,
+              branch: event.attributes.branch,
+              file: event.attributes.path,
+              template: event.attributes.templateId,
+              prWorkflowEnabled: event.attributes.prWorkflowEnabled || false,
+              created: true,
+            };
+          });
+        setRecordIndex(events.length + 1);
+        setWebhookEvents(
+          events.concat({
+            key: i,
+            id: uuid(),
+          })
+        );
+      })
+      .catch(() => {
+        message.error("Failed to load webhook");
+      });
   };
-  const handleEventChange = (index: number, _: any, name: string, value: string) => {
+  const handleEventChange = (index: number, _: any, name: string, value: string | boolean) => {
     webhookEvents[index][name] = value;
     if (index == webhookEvents.length - 1) {
       const index = recordIndex + 1;
@@ -84,6 +117,7 @@ export const WorkspaceWebhook = ({ workspace, vcsProvider, orgTemplates, manageW
         {
           key: index,
           id: uuid(),
+          prWorkflowEnabled: false,
         },
       ]);
       setRecordIndex(index);
@@ -112,6 +146,7 @@ export const WorkspaceWebhook = ({ workspace, vcsProvider, orgTemplates, manageW
       newWebhookEvents.push({
         key: 1,
         id: uuid(),
+        prWorkflowEnabled: false,
       });
     }
     setWebhookEvents(newWebhookEvents);
@@ -158,6 +193,26 @@ export const WorkspaceWebhook = ({ workspace, vcsProvider, orgTemplates, manageW
       setWebhookEvents([...webhookEvents]);
       return;
     }
+    // Verify regex patterns
+    let regexError = false;
+    webhookEvents
+      .filter((_, index) => index < recordIndex - 1)
+      .forEach((event) => {
+        if (!isValidRegexList(event.branch)) {
+          event.branchStatus = "error";
+          regexError = true;
+        }
+        if (!isValidRegexList(event.file)) {
+          event.fileStatus = "error";
+          regexError = true;
+        }
+      });
+    if (regexError) {
+      setWaiting(false);
+      message.error("Branch and File must be valid regex patterns");
+      setWebhookEvents([...webhookEvents]);
+      return;
+    }
     const baseRequestURL = `/organization/${organizationId}/workspace/${workspaceId}/webhook`;
     const newWebhookId = webhookId ? webhookId : uuid();
     const body = {
@@ -199,6 +254,7 @@ export const WorkspaceWebhook = ({ workspace, vcsProvider, orgTemplates, manageW
                   branch: event.branch,
                   path: event.file,
                   templateId: event.template,
+                  prWorkflowEnabled: event.prWorkflowEnabled || false,
                 },
               },
             };
@@ -259,6 +315,25 @@ export const WorkspaceWebhook = ({ workspace, vcsProvider, orgTemplates, manageW
           <Select.Option value="pull_request">Pull Request</Select.Option>
           <Select.Option value="release">Release</Select.Option>
         </Select>
+      ),
+    },
+    {
+      title: (
+        <Tooltip title="Enable Atlantis-style workflow: post plan/apply results as PR comments and accept 'terrakube plan' / 'terrakube apply' commands from PR comments">
+          PR Workflow <InfoCircleOutlined />
+        </Tooltip>
+      ),
+      dataIndex: "prWorkflowEnabled",
+      key: "prWorkflowEnabled",
+      width: "8%",
+      render: (_: string, record: any, index: number) => (
+        record.event === "pull_request" ? (
+          <Switch
+            size="small"
+            checked={record.prWorkflowEnabled || false}
+            onChange={(checked) => handleEventChange(index, record.key, "prWorkflowEnabled", checked)}
+          />
+        ) : null
       ),
     },
     {
@@ -340,10 +415,11 @@ export const WorkspaceWebhook = ({ workspace, vcsProvider, orgTemplates, manageW
   return (
     <div>
       <h1>Webhook</h1>
-      <p>
+      <Typography.Text type="secondary" style={{ display: "block", marginBottom: 24 }}>
         Webhooks allow you to trigger a workspace run when a specific event occurs in the repository. This only works
         with VCS flow workspace.
-      </p>
+      </Typography.Text>
+      <h2>VCS Webhook Configuration</h2>
       <Spin spinning={waiting}>
         <Form onFinish={onFinish}>
           <Form.Item

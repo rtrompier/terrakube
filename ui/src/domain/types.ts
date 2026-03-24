@@ -125,6 +125,7 @@ export enum VcsType {
 
 export enum VcsTypeExtended {
   GITHUB = "GITHUB",
+  GITHUB_APP = "GITHUB_APP",
   GITHUB_ENTERPRISE = "GITHUB_ENTERPRISE",
   GITLAB = "GITLAB",
   GITLAB_ENTERPRISE = "GITLAB_ENTERPRISE",
@@ -210,6 +211,8 @@ export type Team = {
   attributes: TeamAttributes;
 };
 
+export type TeamRole = "admin" | "write" | "plan" | "read" | "custom";
+
 export type TeamAttributes = {
   manageCollection: boolean;
   manageJob: boolean;
@@ -220,6 +223,9 @@ export type TeamAttributes = {
   manageVcs: boolean;
   manageWorkspace: boolean;
   name: string;
+  role?: TeamRole;
+  planJob?: boolean;
+  approveJob?: boolean;
 };
 
 // Token
@@ -271,6 +277,17 @@ export type Tag = {
 };
 export type TagAttributes = {
   name: string;
+};
+
+// Federated
+export type Federated = {
+  id: string;
+  attributes: FederatedAttributes;
+};
+export type FederatedAttributes = {
+  name: string;
+  issuerUrl: string;
+  audience: string;
 };
 export type ApiWorkspaceTag = {
   id: string;
@@ -355,6 +372,7 @@ export type WebhookAttributes = {
 export enum WebhookEventType {
   PUSH = "PUSH",
   PULL_REQUEST = "PULL_REQUEST",
+  PR_COMMENT = "PR_COMMENT",
   PING = "PING",
 }
 export type WebhookEvent = {
@@ -367,6 +385,7 @@ export type WebhookEventAttributes = {
   templateId: string;
   priority: number;
   event: WebhookEventType;
+  prWorkflowEnabled: boolean;
 };
 
 // Agent

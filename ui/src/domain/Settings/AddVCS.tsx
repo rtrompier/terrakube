@@ -48,6 +48,39 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
   const [vcsType, setVcsType] = useState<VcsTypeExtended>(vcsName ? vcsName : VcsTypeExtended.GITHUB);
   const [connectionType, setConnectionType] = useState(VcsConnectionType.OAUTH);
   const [uuid] = useState(uuidv1());
+
+  const validatePrivateKeyFormat = (_: any, value: string) => {
+    if (!value) {
+      return Promise.resolve();
+    }
+
+    if (!value.includes("-----BEGIN PRIVATE KEY-----")) {
+      return Promise.reject(new Error("Private key must be in PKCS#8 format (-----BEGIN PRIVATE KEY-----)"));
+    }
+
+    if (!value.includes("-----END PRIVATE KEY-----")) {
+      return Promise.reject(new Error("Private key is incomplete (missing -----END PRIVATE KEY-----)"));
+    }
+
+    return Promise.resolve();
+  };
+
+  const validateUrlFormat = (_: any, value: string) => {
+    if (!value) {
+      return Promise.resolve();
+    }
+
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        return Promise.reject(new Error("URL must start with http:// or https://"));
+      }
+      return Promise.resolve();
+    } catch {
+      return Promise.reject(new Error("Please enter a valid URL"));
+    }
+  };
+
   const handleChange = (currentVal: number) => {
     setCurrent(currentVal);
   };
@@ -79,6 +112,8 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
         return "Azure Devops Server";
       case "GITHUB_ENTERPRISE":
         return "GitHub Enterprise";
+      case "GITHUB_APP":
+        return "Github App";
       default:
         return "GitHub";
     }
@@ -112,7 +147,7 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
       label: "Github.com (GitHub App)",
       key: "1",
       onClick: () => {
-        handleVCSClick(VcsTypeExtended.GITHUB, VcsConnectionType.STANDALONE);
+        handleVCSClick(VcsTypeExtended.GITHUB_APP, VcsConnectionType.STANDALONE);
       },
     },
     {
@@ -174,6 +209,8 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
         return "https://docs.terrakube.io/user-guide/vcs-providers/azure-devops";
       case "GITHUB_ENTERPRISE":
         return "https://docs.terrakube.io/user-guide/vcs-providers/github-enterprise";
+      case "GITHUB_APP":
+        return "https://docs.terrakube.io/user-guide/vcs-providers/github-app";
       default:
         return "https://docs.terrakube.io/user-guide/vcs-providers/github.com";
     }
@@ -222,6 +259,7 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
       case "AZURE_DEVOPS":
         return "https://dev.azure.com";
       case "GITHUB":
+      case "GITHUB_APP":
         return "https://api.github.com";
       default:
         return "";
@@ -265,6 +303,8 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
       case "GITLAB":
       case "BITBUCKET":
       case "AZURE_DEVOPS":
+      case "GITHUB_APP":
+        return true;
       case "GITHUB":
         return true;
       default:
@@ -277,6 +317,8 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
       case "GITLAB":
       case "BITBUCKET":
       case "AZURE_DEVOPS":
+      case "GITHUB_APP":
+        return true;
       case "GITHUB":
         return true;
       default:
@@ -445,12 +487,7 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
           <div>
             <Typography.Text type="secondary" className="paragraph">
               1. On {renderVCSType(vcsType)},{" "}
-              <Button
-                className="link"
-                target="_blank"
-                href="https://aex.dev.azure.com/me?mkt=es-ES"
-                type="link"
-              >
+              <Button className="link" target="_blank" href="https://aex.dev.azure.com/me?mkt=es-ES" type="link">
                 grant accesses to the managed identity &nbsp; <HiOutlineExternalLink />
               </Button>
               . Enter the following information:
@@ -461,19 +498,13 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
                 <ul className="disc-list">
                   <li>
                     <b>Organization Setup:</b>{" "}
-                    <Typography.Paragraph
-                      type="secondary"
-                      style={{ display: "inline", margin: 0, paddingLeft: "5px" }}
-                    >
+                    <Typography.Paragraph type="secondary" style={{ display: "inline", margin: 0, paddingLeft: "5px" }}>
                       Add the manage identity to the organization and grant "Basic" access level
                     </Typography.Paragraph>
                   </li>
                   <li>
                     <b>Repository setup:</b>{" "}
-                    <Typography.Paragraph
-                      type="secondary"
-                      style={{ display: "inline", margin: 0, paddingLeft: "5px" }}
-                    >
+                    <Typography.Paragraph type="secondary" style={{ display: "inline", margin: 0, paddingLeft: "5px" }}>
                       Add the manage identity to the repository and grant "Contributor" access level
                     </Typography.Paragraph>
                   </li>
@@ -563,12 +594,15 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
                     <b>Webhook:</b> <b>untick</b> Active
                   </li>
                   <li>
-                    <b>Repository permissions:</b> Commit statuses: Read and write (Only if webhook to be used on VCS
-                    workflow workspaces)
+                    <b>Repository permissions:</b>
                     <br />
-                    Content: Read-only
+                    Commit statuses: Read and write (Only if webhook to be used on VCS workflow workspaces)
+                    <br />
+                    Contents: Read-only
                     <br />
                     Metadata: Read-only
+                    <br />
+                    Pull requests: Read-only (Only if webhook to be used on VCS workflow workspaces)
                     <br />
                     Webhooks: Read and write (Only if webhook to be used on VCS workflow workspaces)
                   </li>
@@ -676,6 +710,7 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
       case "AZURE_DEVOPS":
         return `https://app.vssps.visualstudio.com`;
       case "GITHUB":
+      case "GITHUB_APP":
         return `https://github.com`;
       default:
         return ``;
@@ -824,10 +859,20 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
             >
               <Input placeholder={renderVCSType(vcsType)} />
             </Form.Item>
-            <Form.Item name="endpoint" label="HTTPS URL" rules={[{ required: true }]} hidden={httpsHidden(vcsType)}>
+            <Form.Item
+              name="endpoint"
+              label="HTTPS URL"
+              rules={[{ required: !httpsHidden(vcsType) }, { validator: validateUrlFormat }]}
+              hidden={httpsHidden(vcsType)}
+            >
               <Input placeholder={getHttpsPlaceholder(vcsType)} />
             </Form.Item>
-            <Form.Item name="apiUrl" label="API URL" rules={[{ required: true }]} hidden={apiUrlHidden(vcsType)}>
+            <Form.Item
+              name="apiUrl"
+              label="API URL"
+              rules={[{ required: !apiUrlHidden(vcsType) }, { validator: validateUrlFormat }]}
+              hidden={apiUrlHidden(vcsType)}
+            >
               <Input placeholder={getAPIUrlPlaceholder(vcsType)} />
             </Form.Item>
             <Form.Item name="clientId" label={getClientIdName(vcsType)} rules={[{ required: true }]}>
@@ -845,7 +890,7 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
             <Form.Item
               name="privateKey"
               label={getSecretIdName(vcsType)}
-              rules={[{ required: connectionType != "OAUTH" ? true : false }]}
+              rules={[{ required: connectionType != "OAUTH" ? true : false }, { validator: validatePrivateKeyFormat }]}
               hidden={connectionType === "OAUTH"}
             >
               <TextArea placeholder="-----BEGIN PRIVATE KEY-----" style={{ minHeight: "200px" }} />

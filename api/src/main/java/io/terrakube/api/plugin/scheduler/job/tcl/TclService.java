@@ -8,6 +8,7 @@ import io.terrakube.api.repository.VcsRepository;
 import io.terrakube.api.rs.job.Job;
 import io.terrakube.api.rs.job.JobStatus;
 import io.terrakube.api.rs.job.step.Step;
+import io.terrakube.api.rs.template.Template;
 import io.terrakube.api.rs.vcs.Vcs;
 import io.terrakube.api.rs.vcs.VcsConnectionType;
 import lombok.AllArgsConstructor;
@@ -264,5 +265,70 @@ public class TclService {
 
     private String getTemplateTcl(String templateId) {
         return templateRepository.getReferenceById(UUID.fromString(templateId)).getTcl();
+    }
+
+    public String getFlowTypeForStep(Job job, int stepNumber) {
+        if (job.getTcl() == null || job.getTcl().isEmpty()) {
+            return null;
+        }
+        try {
+            FlowConfig flowConfig = getFlowConfig(job.getTcl());
+            if (flowConfig == null || flowConfig.getFlow() == null) {
+                return null;
+            }
+            return flowConfig.getFlow().stream()
+                    .filter(flow -> flow.getStep() == stepNumber)
+                    .map(Flow::getType)
+                    .findFirst()
+                    .orElse(null);
+        } catch (Exception e) {
+            log.warn("Error getting flow type for job {} step {}: {}", job.getId(), stepNumber, e.getMessage());
+            return null;
+        }
+    }
+
+    public boolean isTemplatePlanOnly(String templateId) {
+        if (templateId == null || templateId.isEmpty()) {
+            return false;
+        }
+        try {
+            String tcl = getTemplateTcl(templateId);
+            FlowConfig flowConfig = getFlowConfig(tcl);
+
+            if (flowConfig == null || flowConfig.getFlow() == null || flowConfig.getFlow().isEmpty()) {
+                return false;
+            }
+
+            for (Flow flow : flowConfig.getFlow()) {
+                String flowType = flow.getType();
+                if (flowType == null) {
+                    return false;
+                }
+                if (!flowType.equals(FlowType.terraformPlan.toString())
+                        && !flowType.equals(FlowType.terraformPlanDestroy.toString())) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            log.warn("Error checking if template {} is plan-only: {}", templateId, e.getMessage());
+            return false;
+        }
+    }
+
+    public boolean isCliTemplate(String templateReference) {
+        try {
+            Optional<Template> template = templateRepository.findById(UUID.fromString(templateReference));
+
+            if (template.isPresent()) {
+                Template temp = template.get();
+                return temp.getName().equals("Terraform-Plan/Apply-Cli") || temp.getName().equals("Terraform-Plan/Destroy-Cli");
+            }
+            else return false;
+        } catch(Exception e) {
+            log.warn("Error checking if template {} is cli: {}", templateReference, e.getMessage());
+        }
+
+        return false;
     }
 }

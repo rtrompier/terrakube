@@ -17,7 +17,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import axiosInstance from "../../config/axiosConfig";
 import "./Settings.css";
-import { DeleteOutlined, InfoCircleOutlined, PlusOutlined, CloseCircleOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EditOutlined, InfoCircleOutlined, PlusOutlined, CloseCircleOutlined } from "@ant-design/icons";
 
 // Type definitions
 type Collection = {
@@ -39,9 +39,14 @@ type Workspace = {
 type CreateEditCollectionProps = {
   mode: "create" | "edit";
   collectionId?: string;
+  managePermission?: boolean;
 };
 
-export const CreateEditCollection = ({ mode, collectionId: propCollectionId }: CreateEditCollectionProps) => {
+export const CreateEditCollection = ({
+  mode,
+  collectionId: propCollectionId,
+  managePermission = true,
+}: CreateEditCollectionProps) => {
   const { orgid, collectionid: urlCollectionId } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -53,52 +58,53 @@ export const CreateEditCollection = ({ mode, collectionId: propCollectionId }: C
   const [variableForm] = Form.useForm();
   const [collectionForm] = Form.useForm();
   const [addingVariable, setAddingVariable] = useState(false);
+  const [variableMode, setVariableMode] = useState<"create" | "edit">("create");
+  const [editingVariableId, setEditingVariableId] = useState<string>("");
 
   // Use either the prop or URL parameter for collection ID
   const collectionid = propCollectionId || urlCollectionId;
 
   // Load collection data if in edit mode
+  // Load collection data if in edit mode
   useEffect(() => {
     setLoading(true);
 
-    // Load workspaces
-    axiosInstance.get(`organization/${orgid}/workspace`).then((response) => {
-      setWorkspaces(response.data.data);
-    });
-
     if (mode === "edit" && collectionid) {
-      // Load collection data
-      axiosInstance.get(`organization/${orgid}/collection/${collectionid}`).then((response) => {
-        const collectionData = response.data.data;
+      // Parallel load: workspaces, collection data, collection items, and collection references
+      Promise.all([
+        axiosInstance.get(`organization/${orgid}/workspace`),
+        axiosInstance.get(`organization/${orgid}/collection/${collectionid}`),
+        axiosInstance.get(`organization/${orgid}/collection/${collectionid}/item`),
+        axiosInstance.get(`organization/${orgid}/collection/${collectionid}/reference`),
+      ]).then(([workspacesRes, collectionRes, itemsRes, refsRes]) => {
+        setWorkspaces(workspacesRes.data.data);
 
+        const collectionData = collectionRes.data.data;
         collectionForm.setFieldsValue({
           name: collectionData.attributes.name,
           description: collectionData.attributes.description,
           priority: collectionData.attributes.priority || 10,
         });
 
-        // Load collection variables
-        axiosInstance.get(`organization/${orgid}/collection/${collectionid}/item`).then((response) => {
-          setVariables(response.data.data);
-        });
+        setVariables(itemsRes.data.data);
 
-        // Load collection workspace references
-        axiosInstance.get(`organization/${orgid}/collection/${collectionid}/reference`).then((response) => {
-          const workspaceIds = response.data.data
-              .filter((ref: any) => ref.relationships?.workspace?.data?.id != null)
-              .map((ref: any) => ref.relationships.workspace.data.id);
-          setSelectedWorkspaces(workspaceIds);
-        });
+        const workspaceIds = refsRes.data.data
+          .filter((ref: any) => ref.relationships?.workspace?.data?.id != null)
+          .map((ref: any) => ref.relationships.workspace.data.id);
+        setSelectedWorkspaces(workspaceIds);
 
         setLoading(false);
       });
     } else {
-      // For create mode, initialize with empty variables
-      setVariables([]);
-      setSelectedWorkspaces([]);
-      setLoading(false);
+      // For create mode, just load workspaces
+      axiosInstance.get(`organization/${orgid}/workspace`).then((response) => {
+        setWorkspaces(response.data.data);
+        setVariables([]);
+        setSelectedWorkspaces([]);
+        setLoading(false);
+      });
     }
-  }, [orgid, collectionid, mode]);
+  }, [orgid, collectionid, mode, collectionForm]);
 
   const handleCancel = () => {
     navigate(`/organizations/${orgid}/settings/collection`);
@@ -180,14 +186,14 @@ export const CreateEditCollection = ({ mode, collectionId: propCollectionId }: C
 
         const existingRefs = refsResponse.data.data;
         const existingWorkspaceIds = existingRefs
-            .filter((ref: any) => ref.relationships?.workspace?.data?.id != null)
-            .map((ref: any) => ref.relationships.workspace.data.id);
+          .filter((ref: any) => ref.relationships?.workspace?.data?.id != null)
+          .map((ref: any) => ref.relationships.workspace.data.id);
 
         // Delete references that are not in the new selection or where the workspace is null because it was deleted
         for (const ref of existingRefs) {
           const workspaceId = ref.relationships?.workspace?.data?.id;
           if (workspaceId == null) {
-              await axiosInstance.delete(`organization/${orgid}/collection/${collectionid}/reference/${ref.id}`);
+            await axiosInstance.delete(`organization/${orgid}/collection/${collectionid}/reference/${ref.id}`);
           } else if (!selectedWorkspaces.includes(workspaceId)) {
             await axiosInstance.delete(`organization/${orgid}/collection/${collectionid}/reference/${ref.id}`);
           }
@@ -229,6 +235,75 @@ export const CreateEditCollection = ({ mode, collectionId: propCollectionId }: C
       message.error("Failed to save collection");
     } finally {
       setSaveLoading(false);
+    }
+  };
+
+  const handleUpdateVariable = async () => {
+    try {
+      setVariableLoading(true);
+      const values = await variableForm.validateFields();
+
+      // Update local state for temp variables
+      if (editingVariableId.startsWith("temp-")) {
+        setVariables(
+          variables.map((v) =>
+            v.id === editingVariableId
+              ? {
+                  ...v,
+                  attributes: {
+                    key: values.key,
+                    value: values.value,
+                    category: values.category,
+                    description: values.description,
+                    hcl: values.hcl,
+                    sensitive: values.sensitive,
+                  },
+                }
+              : v
+          )
+        );
+        message.success("Variable updated");
+      } else if (mode === "edit" && collectionid) {
+        // Update variable in collection via API
+        try {
+          await axiosInstance.patch(
+            `organization/${orgid}/collection/${collectionid}/item/${editingVariableId}`,
+            {
+              data: {
+                type: "item",
+                id: editingVariableId,
+                attributes: {
+                  key: values.key,
+                  value: values.value,
+                  sensitive: values.sensitive,
+                  description: values.description,
+                  hcl: values.hcl,
+                  category: values.category,
+                },
+              },
+            },
+            { headers: { "Content-Type": "application/vnd.api+json" } }
+          );
+
+          // Refresh variables
+          const response = await axiosInstance.get(`organization/${orgid}/collection/${collectionid}/item`);
+          setVariables(response.data.data);
+          message.success("Variable updated successfully");
+        } catch (error) {
+          console.error("Failed to update variable:", error);
+          message.error("Failed to update variable");
+        }
+      }
+
+      variableForm.resetFields();
+      setAddingVariable(false);
+      setVariableMode("create");
+      setEditingVariableId("");
+    } catch (error) {
+      console.error("Failed to update variable:", error);
+      message.error("Failed to update variable");
+    } finally {
+      setVariableLoading(false);
     }
   };
 
@@ -287,12 +362,28 @@ export const CreateEditCollection = ({ mode, collectionId: propCollectionId }: C
 
       variableForm.resetFields();
       setAddingVariable(false);
+      setVariableMode("create");
+      setEditingVariableId("");
     } catch (error) {
       console.error("Failed to add variable:", error);
       message.error("Failed to add variable");
     } finally {
       setVariableLoading(false);
     }
+  };
+
+  const handleEditVariable = (record: any) => {
+    setVariableMode("edit");
+    setEditingVariableId(record.id);
+    setAddingVariable(true);
+    variableForm.setFieldsValue({
+      key: record.attributes.key,
+      value: record.attributes.value,
+      category: record.attributes.category,
+      description: record.attributes.description,
+      hcl: record.attributes.hcl,
+      sensitive: record.attributes.sensitive,
+    });
   };
 
   const handleRemoveVariable = async (variableId: string) => {
@@ -360,9 +451,14 @@ export const CreateEditCollection = ({ mode, collectionId: propCollectionId }: C
       title: "Actions",
       key: "actions",
       render: (_: any, record: any) => (
-        <Button icon={<DeleteOutlined />} type="link" danger onClick={() => handleRemoveVariable(record.id)}>
-          Delete
-        </Button>
+        <Space>
+          <Button icon={<EditOutlined />} type="link" onClick={() => handleEditVariable(record)}>
+            Edit
+          </Button>
+          <Button icon={<DeleteOutlined />} type="link" danger onClick={() => handleRemoveVariable(record.id)}>
+            Delete
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -370,15 +466,33 @@ export const CreateEditCollection = ({ mode, collectionId: propCollectionId }: C
   // Replace the Card for adding a variable with a Modal
   const addVariableModal = (
     <Modal
-      title="Add variable"
+      title={variableMode === "edit" ? "Edit variable" : "Add variable"}
       open={addingVariable}
-      onCancel={() => setAddingVariable(false)}
+      onCancel={() => {
+        setAddingVariable(false);
+        setVariableMode("create");
+        setEditingVariableId("");
+        variableForm.resetFields();
+      }}
       footer={[
-        <Button key="cancel" onClick={() => setAddingVariable(false)}>
+        <Button
+          key="cancel"
+          onClick={() => {
+            setAddingVariable(false);
+            setVariableMode("create");
+            setEditingVariableId("");
+            variableForm.resetFields();
+          }}
+        >
           Cancel
         </Button>,
-        <Button key="submit" type="primary" onClick={handleAddVariable} loading={variableLoading}>
-          Add variable
+        <Button
+          key="submit"
+          type="primary"
+          onClick={variableMode === "edit" ? handleUpdateVariable : handleAddVariable}
+          loading={variableLoading}
+        >
+          {variableMode === "edit" ? "Save changes" : "Add variable"}
         </Button>,
       ]}
       width={600}
@@ -467,8 +581,7 @@ export const CreateEditCollection = ({ mode, collectionId: propCollectionId }: C
     <div>
       <div style={{ marginBottom: "15px" }}>
         <Typography.Text>
-          You can add any number of variables. Terrakube will use these variables for jobs in the specified
-          workspaces.
+          You can add any number of variables. Terrakube will use these variables for jobs in the specified workspaces.
         </Typography.Text>
       </div>
 
@@ -483,7 +596,16 @@ export const CreateEditCollection = ({ mode, collectionId: propCollectionId }: C
           bordered
         />
 
-        <Button icon={<PlusOutlined />} onClick={() => setAddingVariable(true)} style={{ marginBottom: "20px" }}>
+        <Button
+          icon={<PlusOutlined />}
+          onClick={() => {
+            setVariableMode("create");
+            setEditingVariableId("");
+            variableForm.resetFields();
+            setAddingVariable(true);
+          }}
+          style={{ marginBottom: "20px" }}
+        >
           Add variable
         </Button>
 
@@ -576,9 +698,7 @@ export const CreateEditCollection = ({ mode, collectionId: propCollectionId }: C
 
           {mode === "create" ? (
             <div style={{ marginBottom: "15px" }}>
-              <Typography.Text>
-                Create the collection first. Then you can add variables to it.
-              </Typography.Text>
+              <Typography.Text>Create the collection first. Then you can add variables to it.</Typography.Text>
             </div>
           ) : (
             variableListing
@@ -586,7 +706,7 @@ export const CreateEditCollection = ({ mode, collectionId: propCollectionId }: C
           <div style={{ display: "flex", justifyContent: "flex-start", marginTop: "30px" }}>
             <Space>
               <Button onClick={handleCancel}>Cancel</Button>
-              <Button type="primary" onClick={handleSave} loading={saveLoading}>
+              <Button type="primary" onClick={handleSave} loading={saveLoading} disabled={!managePermission}>
                 {mode === "create" ? "Create variable collection" : "Save Variable Collection"}
               </Button>
             </Space>

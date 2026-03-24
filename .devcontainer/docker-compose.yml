@@ -36,7 +36,7 @@ x-api: &api_env
   AwsEndpoint: $TK_OUTPUT_ENDPOINT
   TerrakubeUiURL: https://terrakube.${DOMAIN}
   spring_profiles_active: demo
-  DexClientId: terrakube-app
+  DexClientId: example-app
   TerrakubeToolsRepository: https://github.com/AzBuilder/terrakube-extensions.git
   TerrakubeToolsBranch: main
   CustomTerraformReleasesUrl: "https://releases.hashicorp.com/terraform/index.json"
@@ -87,7 +87,7 @@ x-registry: &registry_env
   AwsStorageBucketName: $TK_OUTPUT_BUCKET_NAME
   AwsStorageRegion: $TK_OUTPUT_STORAGE_REGION
   AwsEndpoint: $TK_OUTPUT_ENDPOINT
-  AppClientId: terrakube-app
+  AppClientId: example-app
   AppIssuerUri: https://terrakube-dex.${DOMAIN}/dex
   SERVICE_BINDING_ROOT: /mnt/platform/bindings
 
@@ -138,6 +138,7 @@ x-traefik_dev_labels: &traefik_dev_labels
   ## Terrakube API HTTPS
   traefik.http.routers.terrakube-api-http.rule: Host(`terrakube-api.${DOMAIN}`)
   traefik.http.routers.terrakube-api-http.entrypoints: web
+  traefik.http.routers.terrakube-api-http.service: terrakube-api-https
   traefik.http.routers.terrakube-api-http.middlewares: terrakube-api-redirect-https
   traefik.http.middlewares.terrakube-api-redirect-https.redirectscheme.scheme: https
 
@@ -164,6 +165,7 @@ x-traefik_dev_labels: &traefik_dev_labels
   ## Redirect to HTTPS
   traefik.http.routers.terrakube-ui-http.rule: Host(`terrakube.${DOMAIN}`)
   traefik.http.routers.terrakube-ui-http.entrypoints: web
+  traefik.http.routers.terrakube-ui-http.service: terrakube-ui-https
   traefik.http.routers.terrakube-ui-http.middlewares: terrakube-ui-redirect-https
   traefik.http.middlewares.terrakube-ui-redirect-https.redirectscheme.scheme: https
   ## Terrakube registry
@@ -177,6 +179,7 @@ x-traefik_dev_labels: &traefik_dev_labels
   ## Redirect to HTTPS
   traefik.http.routers.terrakube-registry-http.rule: Host(`terrakube-registry.${DOMAIN}`)
   traefik.http.routers.terrakube-registry-http.entrypoints: web
+  traefik.http.routers.terrakube-registry-http.service: terrakube-registry-https
   traefik.http.routers.terrakube-registry-http.middlewares: terrakube-registry-redirect-https
   traefik.http.middlewares.terrakube-registry-redirect-https.redirectscheme.scheme: https
 
@@ -226,6 +229,7 @@ services:
       - ./cert.pem:/letsencrypt/fullchain.pem:ro
     restart: unless-stopped
   terrakube-dev:
+    platform: linux/amd64
     dns: *terrakube_dns
     extra_hosts: *terrakube_hosts
     labels: *traefik_dev_labels

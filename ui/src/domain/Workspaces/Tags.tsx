@@ -41,24 +41,28 @@ export const Tags = ({ organizationId, workspaceId, manageWorkspace }: Props) =>
 
     //search for existing tag if you type the name and hit enter
     let existingTagId;
-    axiosInstance.get(`organization/${organizationId}/tag?filter[tag]=name==${tagName}`).then((oldTag) => {
-      existingTagId = oldTag.data?.data[0]?.id;
+    axiosInstance
+      .get(`organization/${organizationId}/tag`, {
+        params: { "filter[tag]": `name==${tagName}` },
+      })
+      .then((oldTag) => {
+        existingTagId = oldTag.data?.data[0]?.id;
 
-      if (existingTagId === undefined) {
-        axiosInstance
-          .post(`organization/${organizationId}/tag`, body, {
-            headers: {
-              "Content-Type": "application/vnd.api+json",
-            },
-          })
-          .then((response) => {
-            setTags((prev) => [...prev, response.data?.data]);
-            addTagToWorkspace(response.data?.data?.id);
-          });
-      } else {
-        addTagToWorkspace(existingTagId);
-      }
-    });
+        if (existingTagId === undefined) {
+          axiosInstance
+            .post(`organization/${organizationId}/tag`, body, {
+              headers: {
+                "Content-Type": "application/vnd.api+json",
+              },
+            })
+            .then((response) => {
+              setTags((prev) => [...prev, response.data?.data]);
+              addTagToWorkspace(response.data?.data?.id);
+            });
+        } else {
+          addTagToWorkspace(existingTagId);
+        }
+      });
   };
   const addTagToWorkspace = (tagId: string) => {
     const body = {
