@@ -5,8 +5,6 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ORGANIZATION_ARCHIVE, ORGANIZATION_NAME } from "../../config/actionTypes";
 import organizationService from "@/modules/organizations/organizationService";
-import { mapOrganization } from "./organizationMapper";
-import useApiRequest from "@/modules/api/useApiRequest";
 import { OrganizationModel } from "./types";
 import OrganizationGrid from "./components/OrganizationGrid/OrganizationGrid";
 import PageWrapper from "@/modules/layout/PageWrapper/PageWrapper";
@@ -16,13 +14,26 @@ export default function OrganizationsPickerPage() {
   const navigate = useNavigate();
   const orgId = sessionStorage.getItem(ORGANIZATION_ARCHIVE);
 
-  const { loading, execute, error } = useApiRequest({
-    action: () => organizationService.listOrganizations(),
-    onReturn: (data) => {
-      const mapped = data.map(mapOrganization);
-      setOrganizations(mapped);
-    },
-  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<any>(null);
+
+  const execute = async () => {
+    setLoading(true);
+    try {
+      const orgs = await organizationService.listOrganizationsGraphQL();
+      setOrganizations(orgs.map((org) => ({
+        id: org.id,
+        name: org.name,
+        description: org.description,
+        executionMode: org.executionMode,
+        icon: org.icon,
+      })));
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   async function initPage() {
     // Skip redirect if explicitly navigating to /organizations
