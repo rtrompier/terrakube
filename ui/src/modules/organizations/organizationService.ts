@@ -28,6 +28,10 @@ async function listOrganizationsGraphQL(): Promise<FlatOrganization[]> {
     headers: { "Content-Type": "application/json" },
   });
 
+  if (response.data?.errors?.length) {
+    throw new Error(response.data.errors[0].message || "Failed to load organizations");
+  }
+
   const data = response.data?.data;
   if (!data?.organization?.edges) {
     return [];
@@ -59,6 +63,10 @@ async function getOrganizationNameGraphQL(orgId: string): Promise<string | null>
   const response = await axiosGraphQL.post("", body, {
     headers: { "Content-Type": "application/json" },
   });
+
+  if (response.data?.errors?.length) {
+    throw new Error(response.data.errors[0].message || "Failed to load organization");
+  }
 
   const data = response.data?.data;
   if (!data?.organization?.edges?.length) {

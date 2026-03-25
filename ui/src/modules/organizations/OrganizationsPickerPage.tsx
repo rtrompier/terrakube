@@ -6,6 +6,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ORGANIZATION_ARCHIVE, ORGANIZATION_NAME } from "../../config/actionTypes";
 import organizationService from "@/modules/organizations/organizationService";
 import { OrganizationModel } from "./types";
+import { ErrorInformation } from "@/modules/api/types";
 import OrganizationGrid from "./components/OrganizationGrid/OrganizationGrid";
 import PageWrapper from "@/modules/layout/PageWrapper/PageWrapper";
 
@@ -15,7 +16,7 @@ export default function OrganizationsPickerPage() {
   const orgId = sessionStorage.getItem(ORGANIZATION_ARCHIVE);
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<any>(null);
+  const [error, setError] = useState<ErrorInformation | undefined>(undefined);
 
   const execute = async () => {
     setLoading(true);
@@ -30,8 +31,11 @@ export default function OrganizationsPickerPage() {
           icon: org.icon,
         }))
       );
-    } catch (err) {
-      setError(err);
+    } catch (err: any) {
+      setError({
+        title: "Failed to load organizations",
+        message: err?.message || "An unexpected error occurred",
+      });
     } finally {
       setLoading(false);
     }
