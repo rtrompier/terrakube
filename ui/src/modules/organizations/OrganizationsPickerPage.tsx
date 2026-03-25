@@ -21,13 +21,15 @@ export default function OrganizationsPickerPage() {
     setLoading(true);
     try {
       const orgs = await organizationService.listOrganizationsGraphQL();
-      setOrganizations(orgs.map((org) => ({
-        id: org.id,
-        name: org.name,
-        description: org.description,
-        executionMode: org.executionMode,
-        icon: org.icon,
-      })));
+      setOrganizations(
+        orgs.map((org) => ({
+          id: org.id,
+          name: org.name,
+          description: org.description,
+          executionMode: org.executionMode,
+          icon: org.icon,
+        }))
+      );
     } catch (err) {
       setError(err);
     } finally {
